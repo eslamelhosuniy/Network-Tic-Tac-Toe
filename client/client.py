@@ -1,6 +1,8 @@
+# client/client.py
 import os
 import socket
-from exceptions import *
+import ssl
+from client.exceptions import *
 from dotenv import load_dotenv
 
 class client :
@@ -8,15 +10,21 @@ class client :
     SERVER_HOST = os.getenv("HOST", "127.0.0.1")
     SERVER_PORT = int(os.getenv("PORT", "5000"))
 
-    def __init__(self):
+    def __init__(self,context):
         try:
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.sock = context.wrap_socket(socket.socket(socket.AF_INET, socket.SOCK_STREAM))
+        except (ssl.SSLCertVerificationError,ValueError) as e:
+             raise SSLCertVerificationError(f"SSL certificate verification failed: {e}")
+        except ssl.SSLError as e:
+            raise HandshakeError(f"SSL handshake failed: {e}")
         except (socket.timeout, socket.error) as e:
             raise NetworkError(f"Unexpected network error: {e}")
 
     def connect(self, SERVER_HOST =SERVER_HOST, SERVER_PORT = SERVER_PORT):
         try:
             self.sock.connect((SERVER_HOST, SERVER_PORT))
+        except ssl.SSLCertVerificationError as e:
+            raise SSLCertificateError(f"SSL certificate verification failed: {e}")
         except ConnectionRefusedError:
              raise ConnectionFailedError("Server refused the connection or not found.")
         except TimeoutError:
@@ -32,7 +40,10 @@ class client :
         
     def send(self, message):
         try:
-             self.sock.send(message.encode())
+             # ensure newline (server is tolerant)
+             if not message.endswith("\n"):
+                 message = message + "\n"
+             self.sock.sendall(message.encode())
         except BrokenPipeError:
             raise ConnectionLostError("Connection lost.")
         except ValueError:
@@ -54,7 +65,11 @@ class client :
 
 
 def main():
-    c = client()
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+
+    c = client(context)
     c.connect()
     try:
         while True:
@@ -62,13 +77,18 @@ def main():
             if not response:
                 break
             print(response.strip())
-            if "Your move" in response:
-                move = input("Enter your move (0-8): ")
+            if "Your move" in response or "Your turn" in response:
+                move = input("Enter your move (0-8) or QUIT: ")
                 c.send(move)
     except KeyboardInterrupt:
         print("\nDisconnected by user.")
+        try:
+            c.send("QUIT")
+        except Exception:
+            pass
     finally:
         c.close()
 
 if __name__ == "__main__":
     main()
+        

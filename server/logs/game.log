@@ -1,0 +1,16 @@
+2025-10-27 05:09:19 INFO {"time": "2025-10-27T02:09:19.877437Z", "event": "game_start", "player": null, "details": "Game server started", "meta": {}}
+2025-10-27 05:09:41 INFO {"time": "2025-10-27T02:09:41.966348Z", "event": "tictactoe_move", "player": ["127.0.0.1", 54517], "details": "Player X chose cell 4", "meta": {}}
+2025-10-27 05:09:45 INFO {"time": "2025-10-27T02:09:45.679418Z", "event": "tictactoe_move", "player": ["127.0.0.1", 54521], "details": "Player O chose cell 3", "meta": {}}
+2025-10-27 05:10:39 WARNING {"time": "2025-10-27T02:10:39.872248Z", "event": "timeout_waiting_player", "player": ["127.0.0.1", 54517], "details": "Timed out after 30 seconds", "meta": {}}
+2025-10-27 05:10:39 INFO {"time": "2025-10-27T02:10:39.872898Z", "event": "tictactoe_result", "player": ["127.0.0.1", 54521], "details": "Player O won the game", "meta": {}}
+2025-10-27 05:11:58 INFO {"time": "2025-10-27T02:11:58.670911Z", "event": "game_start", "player": null, "details": "Game server started", "meta": {}}
+2025-10-27 05:13:31 INFO {"time": "2025-10-27T02:13:31.228682Z", "event": "game_start", "player": null, "details": "Game server started", "meta": {}}
+2025-10-27 05:13:47 INFO {"time": "2025-10-27T02:13:47.006552Z", "event": "player_quit", "player": ["127.0.0.1", 57248], "details": "Player X quit the game", "meta": {}}
+2025-10-27 05:13:47 INFO {"time": "2025-10-27T02:13:47.007039Z", "event": "player_quit", "player": ["127.0.0.1", 57248], "details": "Player quit", "meta": {}}
+2025-10-27 05:13:47 INFO {"time": "2025-10-27T02:13:47.007473Z", "event": "tictactoe_result", "player": ["127.0.0.1", 57250], "details": "Player O won the game", "meta": {}}
+2025-10-31 20:30:32 INFO {"time": "2025-10-31T18:30:32.811467Z", "event": "game_start", "player": null, "details": "Game server started", "meta": {}}
+2025-10-31 20:32:46 INFO {"time": "2025-10-31T18:32:46.108829Z", "event": "game_start", "player": null, "details": "Game server started", "meta": {}}
+2025-10-31 20:33:09 INFO {"time": "2025-10-31T18:33:09.770728Z", "event": "tictactoe_move", "player": ["127.0.0.1", 53777], "details": "Player X chose cell 0", "meta": {}}
+2025-10-31 20:33:39 WARNING {"time": "2025-10-31T18:33:39.775349Z", "event": "timeout_waiting_player", "player": ["127.0.0.1", 53925], "details": "Timed out after 30 seconds", "meta": {}}
+2025-10-31 20:33:39 INFO {"time": "2025-10-31T18:33:39.776719Z", "event": "tictactoe_result", "player": ["127.0.0.1", 53777], "details": "Player X won the game", "meta": {}}
+2025-10-31 21:37:27 INFO {"time": "2025-10-31T19:37:27.683082Z", "event": "game_start", "player": null, "details": "Game server started", "meta": {}}

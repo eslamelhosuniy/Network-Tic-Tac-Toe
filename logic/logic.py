@@ -1,3 +1,4 @@
+# logic/logic.py
 from logic.logicExceptions import (
     InvalidMoveError,
     OutOfRangeError,
@@ -50,6 +51,7 @@ class TicTacToe:
         return None
 
     def make_move(self, player, move):
+        # move is expected to be a string representing digit (e.g., "4")
         if player not in self.players:
             raise PlayerNotRecognizedError("Unknown player.")
 
@@ -59,8 +61,8 @@ class TicTacToe:
         if player != self.turn:
             raise NotYourTurnError("It's not your turn!")
 
-        if not move.isdigit():
-            raise InvalidMoveError("Move must be a number between 0 and 8.")
+        if not isinstance(move, str) or not move.isdigit():
+            raise InvalidMoveError("Move must be a string digit between 0 and 8.")
 
         move = int(move)
         if not (0 <= move <= 8):
@@ -72,4 +74,5 @@ class TicTacToe:
         self.board[move] = self.symbols[player]
         self.check_winner()
         
+        # toggle turn
         self.turn = self.players[1] if player == self.players[0] else self.players[0]
