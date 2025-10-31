@@ -1,81 +1,165 @@
 import socket
 import threading
+import traceback
+import ssl
+
 from logic.logic import TicTacToe
 from logic.logicExceptions import (
-    InvalidMoveError,
-    OutOfRangeError,
-    CellOccupiedError,
-    NotYourTurnError,
-    GameOverError,
-    PlayerNotRecognizedError
+    InvalidMoveError, OutOfRangeError, CellOccupiedError,
+    NotYourTurnError, GameOverError, PlayerNotRecognizedError
 )
+from .serverExceptions import (
+    PlayerDisconnectedError, PlayerQuitError,
+    InvalidMessageError, SSLCertificateError, SSLHandshakeError, TimeoutWaitingPlayerError
+)
+from .server_logger import logger
 
 HOST = "127.0.0.1"
 PORT = 5000
+BUFFER = 1024
+MOVE_TIMEOUT_SECONDS = 30
 
 clients_waiting = []
 lock = threading.Lock()
 
+def safe_send(sock, text):
+    try:
+        if not isinstance(text, str):
+            text = str(text)
+        sock.sendall(text.encode())
+    except Exception as e:
+        try: addr = sock.getpeername()
+        except Exception: addr = ("unknown", 0)
+        raise PlayerDisconnectedError(addr, f"send failed: {e}")
+
+def recv_with_timeout(sock, timeout_seconds):
+    try:
+        sock.settimeout(timeout_seconds)
+        data = sock.recv(BUFFER)
+        if not data:
+            try: addr = sock.getpeername()
+            except Exception: addr = ("unknown", 0)
+            raise PlayerDisconnectedError(addr, "client closed connection")
+        return data.decode().strip()
+    except socket.timeout:
+        try: addr = sock.getpeername()
+        except Exception: addr = ("unknown", 0)
+        raise TimeoutWaitingPlayerError(addr, f"Timed out after {timeout_seconds} seconds")
+    except PlayerDisconnectedError: raise
+    except Exception as e:
+        try: addr = sock.getpeername()
+        except Exception: addr = ("unknown", 0)
+        raise PlayerDisconnectedError(addr, f"recv failed: {e}")
+    finally:
+        try: sock.settimeout(None)
+        except Exception: pass
 
 def handle_game(p1, p2):
     game = TicTacToe(p1, p2)
-
-    for sock in [p1, p2]:
-        sock.send(f"Game start! You are {game.symbols[sock]}\n".encode())
+    try:
+        safe_send(p1, f"Game start! You are {game.symbols[p1]}\n")
+        safe_send(p2, f"Game start! You are {game.symbols[p2]}\n")
+    except PlayerDisconnectedError as e:
+        try: p1.close(); p2.close()
+        except: pass
+        return
 
     while True:
         try:
+            board_text = game.print_board()
+            for s in (p1, p2):
+                safe_send(s, board_text + "\n")
+
             current = game.turn
             other = p2 if current == p1 else p1
 
-            current.send("Your move (0-8): ".encode())
-            other.send("Waiting for opponent...\n".encode())
+            safe_send(current, "Your move (0-8) or QUIT:\n")
+            safe_send(other, "Waiting for opponent...\n")
 
-            move = current.recv(1024).decode().strip()
-            if not move:
-                break
+            move_text = recv_with_timeout(current, MOVE_TIMEOUT_SECONDS)
+
+            if move_text.upper() == "QUIT":
+                current_symbol = game.symbols[current]
+                logger.player_quit(current_symbol, current.getpeername())
+                raise PlayerQuitError(current.getpeername(), "Player quit")
+
+            if move_text.upper().startswith("MOVE "):
+                parts = move_text.split()
+                if len(parts) != 2 or not parts[1].isdigit():
+                    raise InvalidMessageError(current.getpeername(), f"Malformed MOVE: {move_text}")
+                move_arg = parts[1]
+            elif move_text.isdigit():
+                move_arg = move_text
+            else:
+                safe_send(current, f"Invalid move format: {move_text}\n")
+                continue
 
             try:
-                game.make_move(current, move)
-            except InvalidMoveError as e:
-                current.send(f"Invalid move: {e}\n".encode())
-                continue
-            except OutOfRangeError as e:
-                current.send(f"Out of range: {e}\n".encode())
-                continue
-            except CellOccupiedError as e:
-                current.send(f"Cell occupied: {e}\n".encode())
-                continue
-            except NotYourTurnError as e:
-                current.send(f"Not your turn: {e}\n".encode())
+                game.make_move(current, move_arg)
+                current_symbol = game.symbols[current]
+                logger.tictactoe_move(current_symbol, move_arg, current.getpeername())
+            except (InvalidMoveError, OutOfRangeError, CellOccupiedError, NotYourTurnError) as e:
+                logger.warning(type(e).__name__, player=current.getpeername(), details=str(e))
+                safe_send(current, f"ERROR: {type(e).__name__}: {e}\n")
                 continue
             except PlayerNotRecognizedError as e:
-                current.send(f"Error: {e}\n".encode())
+                logger.warning("PlayerNotRecognizedError", player=current.getpeername(), details=str(e))
+                safe_send(current, f"ERROR: Player not recognized: {e}\n")
                 break
-            except GameOverError as e:
-                current.send(f"Game over: {e}\n".encode())
-                break
-
-            board_state = game.print_board()
-            for sock in [p1, p2]:
-                sock.send(f"{board_state}\n".encode())
-
-            if game.winner:
-                msg = f"Game over! Winner: {game.winner}\n"
-                for sock in [p1, p2]:
-                    sock.send(msg.encode())
-                    sock.close()
-                print(msg)
+            except GameOverError:
                 break
 
-        except Exception as e:
-            print(f"Unexpected Error: {e}")
+            if getattr(game, "winner", None):
+                winner = game.winner
+                if winner == "Draw":
+                    for s in (p1, p2):
+                        safe_send(s, "Game over! It's a draw.\n")
+                    logger.tictactoe_winner()
+                else:
+                    for s in (p1, p2):
+                        try:
+                            sym = game.symbols[s]
+                            if sym == winner: safe_send(s, "You win!\n")
+                            else: safe_send(s, "You lose!\n")
+                        except Exception: pass
+                    winner_addr = p1.getpeername() if game.symbols[p1] == winner else p2.getpeername()
+                    logger.tictactoe_winner(winner, winner_addr)
+                break
+
+        except (TimeoutWaitingPlayerError, PlayerQuitError, PlayerDisconnectedError) as e:
+            try:
+                remaining = p2 if e.player_addr == p1.getpeername() else p1
+                safe_send(remaining, "OPPONENT_LEFT - you win\n")
+                remaining_symbol = game.symbols[remaining]
+                logger.tictactoe_winner(remaining_symbol, remaining.getpeername())
+            except Exception: pass
             break
+
+        except InvalidMessageError as e:
+            try: safe_send(current, f"INVALID_MESSAGE: {e}\n")
+            except Exception: pass
+            continue
+        except Exception as e:
+            logger.error("UnexpectedServerError", player=None, details=str(e))
+            traceback.print_exc()
+            break
+
+    for s in (p1, p2):
+        try:
+            s.close()
+        except Exception:
+            pass
+
+    print("Game session ended.")
 
 
 def client_thread(conn, addr):
     print(f"Connected by {addr}")
-    conn.send("Welcome! Waiting for opponent...\n".encode())
+    try:
+        conn.send("Welcome! Waiting for opponent...\n".encode())
+    except Exception:
+        conn.close()
+        return
 
     with lock:
         clients_waiting.append(conn)
@@ -86,16 +170,31 @@ def client_thread(conn, addr):
 
 
 def main():
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+
+    try:
+        context.load_cert_chain("server.crt", "server.key")
+    except FileNotFoundError as e:
+        raise SSLCertificateError(f"Certificate or key file not found: {e}")
+    except ssl.SSLError as e:
+        raise SSLCertificateError(f"Invalid certificate or key: {e}")
+    
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind((HOST, PORT))
         s.listen()
         print(f"Server running on {HOST}:{PORT}")
-
         while True:
             conn, addr = s.accept()
+            try:
+                conn = context.wrap_socket(conn, server_side=True)
+            except ssl.SSLError as e:
+                raise SSLHandshakeError(addr, str(e))
+
+            print("SSL Handshake complete!")
             threading.Thread(target=client_thread, args=(conn, addr), daemon=True).start()
 
 
 if __name__ == "__main__":
     main()
+
